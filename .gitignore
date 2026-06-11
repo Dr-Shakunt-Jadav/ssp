@@ -3,3 +3,4 @@ raw_data/
 .env.yaml
 .envrc
 .python-version
+trash/
