@@ -1,6 +1,7 @@
-streamlit
-pandas
+joblib
 numpy
+pandas
 plotly
 requests
-python-dotenv
+scikit-learn
+streamlit
