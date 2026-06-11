@@ -12,14 +12,14 @@ def preprocess_input(funding_total_usd, funding_rounds, founded_year,first_fundi
     """
     # Create a DataFrame or a list in the shape your model was trained on
     input_data = pd.DataFrame({
-        'funding_total_usd': [funding_total_usd],
-        'funding_rounds': [funding_rounds],
-        'founded_year': [founded_year],
-        'first_funding_year': [first_funding_year],
-        'last_funding_year': [last_funding_year],
-        'category_list': [category_list],
-        'country_code': [country_code],
-        'state_code': [state_code],
+        'Total Funding Raised ($M)': [funding_total_usd],
+        'Funding Rounds': [funding_rounds],
+        'Founded Year': [founded_year],
+        'First Funding Year': [first_funding_year],
+        'Last Funding Year': [last_funding_year],
+        'Category': [category_list],
+        'Country Code': [country_code],
+        'State Code': [state_code]
     })
     return input_data
 
