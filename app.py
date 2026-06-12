@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 from utils.model_utils import load_ml_model, preprocess_input, make_prediction
+from utils.autofill_system import build_startup_profile
 
 # -------------------------------------------------------
 # CONFIG
@@ -461,31 +462,60 @@ st.markdown("""
 
 st.divider()
 
+voice_col, autofill_col = st.columns(2)
+
 # -------------------------------------------------------
 # VOICE INPUT
 # -------------------------------------------------------
-st.subheader("🎙️ Voice Input")
-st.caption("Describe your startup out loud - we'll transcribe it for you.") #TODO: Specify fields to be filled in
+with voice_col:
+    st.subheader("🎙️ Voice Input")
+    st.caption("Describe your startup out loud - we'll transcribe it for you.")
 
-audio = st.audio_input("Record your startup description")
+    audio = st.audio_input("Record your startup description")
 
-if audio:
-    audio_bytes = audio.read()
-    audio_hash = hash(audio_bytes)
-    if audio_hash != st.session_state.last_audio_hash:
-        with st.spinner("Transcribing via Whisper large-v3-turbo..."):
-            transcript = transcribe(audio_bytes, audio.type)
-        if transcript:
-            st.session_state.transcript = transcript
-            st.session_state.last_audio_hash = audio_hash
-            with st.spinner("Extracting startup info..."):
-                st.session_state.extracted_fields = extract_fields(transcript)
+    if audio:
+        audio_bytes = audio.read()
+        audio_hash = hash(audio_bytes)
+        if audio_hash != st.session_state.last_audio_hash:
+            with st.spinner("Transcribing via Whisper large-v3-turbo..."):
+                transcript = transcribe(audio_bytes, audio.type)
+            if transcript:
+                st.session_state.transcript = transcript
+                st.session_state.last_audio_hash = audio_hash
+                with st.spinner("Extracting startup info..."):
+                    st.session_state.extracted_fields = extract_fields(transcript)
 
-if st.session_state.transcript:
-    st.success(f"**Transcript:** {st.session_state.transcript}")
-    if st.button("Clear transcript"):
-        st.session_state.transcript = ""
-        st.session_state.extracted_fields = {}
+    if st.session_state.transcript:
+        st.success(f"**Transcript:** {st.session_state.transcript}")
+        if st.button("Clear transcript"):
+            st.session_state.transcript = ""
+            st.session_state.extracted_fields = {}
+            st.rerun()
+
+# -------------------------------------------------------
+# AUTOFILL SYSTEM
+# -------------------------------------------------------
+with autofill_col:
+    st.subheader("🔍 Company Autofill")
+    st.caption("Type a company name to look up its public profile.")
+
+    autofill_query = st.text_input("Company name", placeholder="e.g. Airbnb")
+    if st.button("Look up", use_container_width=True) and autofill_query:
+        with st.spinner("Fetching company data..."):
+            autofill_result = build_startup_profile(autofill_query)
+            profile = autofill_result.get("profile", {})
+            profile_str = (
+                f"Company: {autofill_query}. "
+                f"Founded: {profile.get('founded_at') or ''}. "
+                f"Industry: {profile.get('industry') or ''}. "
+                f"Country: {profile.get('country') or ''}. "
+                f"City: {profile.get('city') or ''}. "
+                f"State: {profile.get('state') or ''}."
+            )
+        with st.spinner("Mapping fields..."):
+            fields = extract_fields(profile_str)
+            fields["company_name"] = autofill_query
+            st.session_state.extracted_fields = fields
         st.rerun()
 
 st.divider()
@@ -510,6 +540,7 @@ with st.form("prediction_form"):
         state_code = st.selectbox("State", options=states_sorted,
                                   index=states_sorted.index(_state) if _state in states_sorted else 0)
 
+#TODO: check min value in DATASET
     with col2:
         st.markdown("**Timeline**")
         founded_year = st.number_input("Founded Year", min_value=1990, max_value=2025,
