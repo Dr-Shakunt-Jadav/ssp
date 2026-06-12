@@ -5,3 +5,5 @@ raw_data/
 .python-version
 trash/
 rizwd/
+archive/
+__pycache__/
