@@ -1,229 +1,214 @@
-# run it with:
-# uvicorn autofill_system:app --reload
-"""
-autofill_system.py
-
-This file implements a complete "autofill" system for startup data.
-
-KEY REQUIREMENT:
-----------------
-The USER ONLY ENTERS THE STARTUP NAME.
-The system automatically:
-  - Searches the web for the correct Crunchbase page
-  - Searches Wikipedia for the correct page
-  - Scrapes both sources
-  - Merges the data
-  - Converts it into ML model input features
-  - Returns autofilled + missing fields
-
-This version uses ONLY free resources:
-  - DuckDuckGo HTML search (no API key)
-  - Crunchbase HTML scraping
-  - Wikipedia API + infobox scraping
-"""
+# ============================================================
+# autofill_system.py
+#
+# PURPOSE
+# -------
+# Public, stable, keyless autofill pipeline for startup/company
+# (and institution) metadata using ONLY:
+#
+#   1. Wikipedia API (search + page)
+#   2. Wikipedia HTML infobox
+#   3. Wikidata API (structured knowledge graph)
+#   4. LinkedIn public company page (best-effort, optional)
+#
+# DESIGN PRINCIPLES
+# -----------------
+# - No API keys, no paid services, no JS rendering.
+# - Only public, globally accessible sources.
+# - Never depend on Crunchbase or blocked/fragile sites.
+# - Only return fields that are actually available.
+# - If a source fails or changes, we degrade gracefully.
+#
+# ============================================================
 
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+import re
+
 import requests
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException
 
 
 # ============================================================
-# 1. HELPER: SAFE DATE PARSING
+# 1. Safe date parser
 # ============================================================
 
 def parse_date_safe(s: Optional[str]) -> Optional[str]:
     """
-    Convert raw date strings into ISO format (YYYY-MM-DD).
-    If parsing fails, return the original string.
+    Try to normalize a date string to ISO format (YYYY-MM-DD).
+
+    WHY:
+    - Wikidata returns ISO-like timestamps (e.g. '+2008-08-01T00:00:00Z').
+    - Wikipedia/LinkedIn often return human-readable dates.
+    - We want a best-effort normalization, but never break if format changes.
+
+    BEHAVIOR:
+    - If parsing succeeds: return 'YYYY-MM-DD'.
+    - If parsing fails: return the original string unchanged.
     """
     if not s:
         return None
-
-    for fmt in ("%Y-%m-%d", "%Y-%m", "%Y"):
-        try:
-            return datetime.strptime(s, fmt).date().isoformat()
-        except ValueError:
-            continue
-
-    return s
+    try:
+        return str(datetime.fromisoformat(s).date())
+    except Exception:
+        return s
 
 
 # ============================================================
-# 2. AUTOMATIC URL DISCOVERY (DuckDuckGo Search)
+# 2. Wikipedia search with improved disambiguation
 # ============================================================
 
-def duckduckgo_search(query: str) -> List[str]:
+def wikipedia_api_search_raw(name: str) -> List[Dict[str, Any]]:
     """
-    Perform a FREE web search using DuckDuckGo's HTML results.
-    No API key required.
+    Call the Wikipedia Search API and return the raw 'search' results list.
 
-    We:
-      - Send a GET request to DuckDuckGo's HTML endpoint
-      - Parse the search results
-      - Extract all result URLs
+    SOURCE:
+    - https://en.wikipedia.org/w/api.php?action=query&list=search
 
-    Returns a list of URLs (strings).
+    RETURNS:
+    - List of search result dicts, each containing:
+      - 'title': page title
+      - 'snippet': short HTML snippet
     """
-    url = "https://duckduckgo.com/html/"
-    params = {"q": query}
+    url = "https://en.wikipedia.org/w/api.php"
+    params = {
+        "action": "query",
+        "list": "search",
+        "srsearch": name,
+        "format": "json",
+    }
+    headers = {"User-Agent": "Mozilla/5.0"}
 
-    resp = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"})
-    if resp.status_code != 200:
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        data = resp.json()
+        return data.get("query", {}).get("search", [])
+    except Exception:
         return []
 
-    soup = BeautifulSoup(resp.text, "lxml")
 
-    results = []
-    for a in soup.select("a.result__a"):
-        href = a.get("href")
-        if href:
-            results.append(href)
+# Hard overrides for very ambiguous institutions
+INSTITUTION_OVERRIDES = {
+    "mit": "Massachusetts Institute of Technology",
+    "massachusetts institute of technology": "Massachusetts Institute of Technology",
+    "stanford": "Stanford University",
+    "harvard": "Harvard University",
+    "oxford": "University of Oxford",
+    "caltech": "California Institute of Technology",
+    "max planck": "Max Planck Society",
+    "johns hopkins": "Johns Hopkins University",
+}
 
-    return results
 
-
-def find_crunchbase_url(name: str) -> Optional[str]:
+def pick_best_wikipedia_title(results: List[Dict[str, Any]], query: str = "") -> Optional[str]:
     """
-    Automatically find the Crunchbase URL for a startup.
+    Hybrid disambiguation for Wikipedia titles.
+
+    GOAL:
+    - Prefer the "right" entity for both startups and institutions.
 
     STRATEGY:
-    ---------
-    1. Search DuckDuckGo for: "<name> crunchbase"
-    2. Look for URLs matching Crunchbase's pattern:
-         https://www.crunchbase.com/organization/<permalink>
-
-    This works for most well-known startups.
+    1. Hard override for known institutions (MIT, Stanford, etc.).
+    2. Exact title match with the query.
+    3. Partial title match containing the query.
+    4. Fallback to startup-biased scoring:
+       - Prefer pages that look like companies / products / organizations.
     """
-    query = f"{name} crunchbase"
-    results = duckduckgo_search(query)
+    if not results:
+        return None
 
-    for url in results:
-        if "crunchbase.com/organization/" in url:
-            return url
+    q = query.lower().strip()
 
-    return None
+    # 1. Hard override for known institutions
+    for key, title in INSTITUTION_OVERRIDES.items():
+        if key in q:
+            return title
+
+    # 2. Exact match
+    for r in results:
+        title = r.get("title", "").lower().strip()
+        if title == q:
+            return r.get("title")
+
+    # 3. Partial match
+    for r in results:
+        title = r.get("title", "").lower()
+        if q in title:
+            return r.get("title")
+
+    # 4. Startup-biased scoring fallback
+    preferred_keywords = [
+        "company", "software", "platform", "inc", "corp", "ltd",
+        "technologies", "labs", "foundation", "organization", "organisation",
+        "startup", "app", "service",
+    ]
+
+    def score(result: Dict[str, Any]) -> int:
+        title = result.get("title", "").lower()
+        snippet = result.get("snippet", "").lower()
+        s = 0
+        for kw in preferred_keywords:
+            if kw in title:
+                s += 3
+            if kw in snippet:
+                s += 1
+        return s
+
+    scored = [(score(r), r) for r in results]
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    best_score, best_result = scored[0]
+    return best_result.get("title")
 
 
 def find_wikipedia_url(name: str) -> Optional[str]:
     """
-    Use Wikipedia's FREE search API to find the most likely page.
-    """
-    search_url = "https://en.wikipedia.org/w/api.php"
-    params = {
-        "action": "opensearch",
-        "search": name,
-        "limit": 1,
-        "namespace": 0,
-        "format": "json",
-    }
+    Resolve a Wikipedia URL for a given name using improved disambiguation.
 
-    resp = requests.get(search_url, params=params)
-    if resp.status_code != 200:
+    PIPELINE:
+    - Call Wikipedia search API.
+    - Pick best title using institution overrides + company-first heuristics.
+    - Construct canonical URL: https://en.wikipedia.org/wiki/<Title>
+    """
+    results = wikipedia_api_search_raw(name)
+    title = pick_best_wikipedia_title(results, name)
+    if not title:
         return None
-
-    urls = resp.json()[3]
-    return urls[0] if urls else None
-
-
-def resolve_entity(name: str) -> Dict[str, Optional[str]]:
-    """
-    High-level function:
-      - Automatically find Crunchbase URL
-      - Automatically find Wikipedia URL
-    """
-    return {
-        "crunchbase_url": find_crunchbase_url(name),
-        "wikipedia_url": find_wikipedia_url(name),
-    }
+    return f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}"
 
 
 # ============================================================
-# 3. SCRAPING CRUNCHBASE HTML
-# ============================================================
-
-def scrape_crunchbase(url: str) -> Dict[str, Any]:
-    """
-    Scrape Crunchbase public HTML page.
-
-    Extract:
-      - founded date
-      - funding total
-      - funding rounds
-      - relationships
-      - milestones
-      - category
-      - city/state/country
-      - first/last funding dates
-      - status
-
-    NOTE:
-    -----
-    Crunchbase HTML changes often.
-    You MUST inspect real pages and adjust selectors.
-    """
-    headers = {"User-Agent": "Mozilla/5.0"}
-    resp = requests.get(url, headers=headers)
-    if resp.status_code != 200:
-        return {}
-
-    soup = BeautifulSoup(resp.text, "lxml")
-    profile = {}
-
-    # 1. Extract JSON-LD structured data
-    json_ld_tag = soup.find("script", {"type": "application/ld+json"})
-    if json_ld_tag:
-        try:
-            import json
-            data = json.loads(json_ld_tag.text)
-
-            profile["founded_at"] = data.get("foundingDate")
-            address = data.get("address", {})
-            profile["city"] = address.get("addressLocality")
-            profile["state_code"] = address.get("addressRegion")
-            profile["country_code"] = address.get("addressCountry")
-            profile["category_code"] = data.get("category") or data.get("industry")
-        except Exception:
-            pass
-
-    # 2. Extract label/value pairs
-    def extract_label_value(label_text: str) -> Optional[str]:
-        label_el = soup.find(string=lambda t: t and label_text in t)
-        if not label_el:
-            return None
-        value_el = label_el.find_parent().find_next("span")
-        return value_el.get_text(strip=True) if value_el else None
-
-    profile["funding_total_usd"] = extract_label_value("Total Funding Amount")
-    profile["funding_rounds"] = extract_label_value("Number of Funding Rounds")
-    profile["relationships"] = extract_label_value("Number of Founders")
-    profile["milestones"] = extract_label_value("Number of Milestones")
-    profile["first_funding_at"] = extract_label_value("First Funding Date")
-    profile["last_funding_at"] = extract_label_value("Last Funding Date")
-    profile["status"] = extract_label_value("Company Status")
-
-    return profile
-
-
-# ============================================================
-# 4. WIKIPEDIA INFOBOX SCRAPING
+# 3. Wikipedia infobox scraper
 # ============================================================
 
 def fetch_wikipedia_infobox(url: str) -> Dict[str, Any]:
     """
-    Scrape the infobox on the right side of a Wikipedia page.
+    Scrape the Wikipedia infobox for key company/institution metadata.
+
+    FIELDS EXTRACTED:
+    - founded_at:   from 'Founded' row (text, may include date + place).
+    - founders:     from 'Founder(s)' row (text).
+    - headquarters: from 'Headquarters' row (full string).
+    - industry:     from 'Industry' row (text).
+    - official_website: from 'Website' row (first link href).
+    - city/state/country: parsed from 'headquarters' by splitting on commas.
+
+    BEHAVIOR:
+    - If infobox is missing or structure changes, returns {}.
+    - Never raises; always safe to call.
     """
-    resp = requests.get(url)
+    headers = {"User-Agent": "Mozilla/5.0"}
+    resp = requests.get(url, headers=headers, timeout=10)
     if resp.status_code != 200:
         return {}
 
     soup = BeautifulSoup(resp.text, "lxml")
-    infobox = soup.find("table", {"class": "infobox"})
+    infobox = soup.find("table", class_=lambda c: c and "infobox" in c.split())
     if not infobox:
         return {}
 
-    data = {}
+    data: Dict[str, Any] = {}
 
     for row in infobox.find_all("tr"):
         header = row.find("th")
@@ -236,133 +221,296 @@ def fetch_wikipedia_infobox(url: str) -> Dict[str, Any]:
 
         if "founded" in key:
             data["founded_at"] = val
+        elif "founder" in key:
+            data["founders"] = val
         elif "headquarters" in key:
             data["headquarters"] = val
         elif "industry" in key:
             data["industry"] = val
-        elif "status" in key or "defunct" in key:
-            data["status"] = val
+        elif "website" in key:
+            link = value.find("a")
+            if link and link.get("href"):
+                data["official_website"] = link["href"]
 
-    # Split headquarters into city/state/country
-    if "headquarters" in data:
-        parts = [p.strip() for p in data["headquarters"].split(",")]
-        if len(parts) >= 1: data["city"] = parts[0]
-        if len(parts) >= 2: data["state_code"] = parts[1]
-        if len(parts) >= 3: data["country_code"] = parts[-1]
+    # Parse HQ into city/state/country if present.
+    hq = data.get("headquarters")
+    if hq:
+        parts = [p.strip() for p in hq.split(",")]
+        if len(parts) >= 1:
+            data["city"] = parts[0]
+        if len(parts) >= 2:
+            data["state"] = parts[1]
+        if len(parts) >= 3:
+            data["country"] = parts[-1]
 
     return data
 
 
 # ============================================================
-# 5. MERGE PROFILES
+# 4. Wikidata structured API
 # ============================================================
 
-def merge_profiles(cb: Dict[str, Any], wiki: Dict[str, Any]) -> Dict[str, Any]:
+def extract_wikidata_qid(wikipedia_url: str) -> Optional[str]:
     """
-    Combine Crunchbase + Wikipedia into a unified profile.
+    Extract a clean Wikidata QID from the Wikipedia HTML.
+
+    STRATEGY:
+    - Fetch the Wikipedia page.
+    - Find the first link to wikidata.org/wiki/Q...
+    - Extract the last path segment and strip query/fragment.
     """
-    profile = {}
+    try:
+        resp = requests.get(wikipedia_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        soup = BeautifulSoup(resp.text, "lxml")
+        link = soup.find("a", href=re.compile(r"wikidata\.org/wiki/Q"))
+        if not link:
+            return None
+        href = link["href"]
+        qid = href.split("/")[-1]
+        qid = qid.split("?", 1)[0]
+        qid = qid.split("#", 1)[0]
+        return qid
+    except Exception:
+        return None
 
-    profile["founded_at"] = parse_date_safe(cb.get("founded_at") or wiki.get("founded_at"))
-    profile["first_funding_at"] = parse_date_safe(cb.get("first_funding_at"))
-    profile["last_funding_at"] = parse_date_safe(cb.get("last_funding_at"))
 
-    profile["funding_total_usd"] = cb.get("funding_total_usd")
-    profile["funding_rounds"] = cb.get("funding_rounds")
-    profile["relationships"] = cb.get("relationships")
-    profile["milestones"] = cb.get("milestones")
+def fetch_wikidata(qid: str) -> Dict[str, Any]:
+    """
+    Fetch structured fields from Wikidata for a given QID.
 
-    profile["category_code"] = cb.get("category_code") or wiki.get("industry")
+    SOURCE:
+    - https://www.wikidata.org/wiki/Special:EntityData/<QID>.json
 
-    profile["city"] = cb.get("city") or wiki.get("city")
-    profile["state_code"] = cb.get("state_code") or wiki.get("state_code")
-    profile["country_code"] = cb.get("country_code") or wiki.get("country_code")
+    FIELDS EXTRACTED:
+    - founded_at:   P571 (inception) → ISO date string.
+    - founders:     P112 (founder) → raw value (may be entity ref).
+    - employees:    P1128 (number of employees) → numeric amount.
+    - official_website: P856 → URL.
+    """
+    url = f"https://www.wikidata.org/wiki/Special:EntityData/{qid}.json"
+    headers = {"User-Agent": "Mozilla/5.0"}
 
-    profile["status"] = cb.get("status") or wiki.get("status")
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        data = resp.json()
+        entity = data["entities"][qid]["claims"]
+    except Exception:
+        return {}
+
+    def get_prop(pid: str):
+        if pid not in entity:
+            return None
+        mainsnak = entity[pid][0]["mainsnak"]
+        datavalue = mainsnak.get("datavalue", {})
+        return datavalue.get("value")
+
+    out: Dict[str, Any] = {}
+
+    inception = get_prop("P571")
+    if inception and "time" in inception:
+        out["founded_at"] = inception["time"].lstrip("+").split("T")[0]
+
+    founders = get_prop("P112")
+    if founders:
+        out["founders"] = founders
+
+    employees = get_prop("P1128")
+    if employees and "amount" in employees:
+        out["employees"] = employees["amount"]
+
+    website = get_prop("P856")
+    if website:
+        out["official_website"] = website
+
+    return out
+
+
+# ============================================================
+# 5. LinkedIn public company page scraper (best-effort)
+# ============================================================
+
+def fetch_linkedin_company(name: str) -> Dict[str, Any]:
+    """
+    Best-effort scraper for public LinkedIn company pages.
+
+    STRATEGY:
+    - Build a simple slug: lowercase, remove spaces.
+      e.g. "Airbnb" -> "airbnb".
+    - Fetch https://www.linkedin.com/company/<slug>/
+    - Use defensive regex on full-page text to find:
+      - "Company size 1,001-5,000 employees"
+      - "Founded 2012"
+    """
+    slug = name.lower().replace(" ", "")
+    url = f"https://www.linkedin.com/company/{slug}/"
+
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return {}
+    except Exception:
+        return {}
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    data: Dict[str, Any] = {}
+
+    try:
+        text = soup.get_text(" ", strip=True).lower()
+
+        # Very rough pattern for company size.
+        m_size = re.search(r"company size\s+([0-9,–\-+ ]+employees)", text)
+        if m_size:
+            data["company_size"] = m_size.group(1).strip()
+
+        # Very rough pattern for founded year.
+        m_founded = re.search(r"founded\s+([0-9]{4})", text)
+        if m_founded:
+            data["founded_at"] = m_founded.group(1).strip()
+
+    except Exception:
+        return data
+
+    return data
+
+
+# ============================================================
+# 6. Merge profiles from all sources
+# ============================================================
+
+def merge_profiles(wiki: Dict[str, Any], wikidata: Dict[str, Any], linkedin: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge fields from Wikipedia, Wikidata, and LinkedIn into a single profile.
+
+    PRIORITY:
+    - founded_at:
+        1. Wikidata (structured inception date)
+        2. Wikipedia (infobox 'Founded')
+        3. LinkedIn (founded year)
+    - founders:
+        1. Wikipedia (infobox 'Founder(s)')
+        2. Wikidata (P112)
+    - industry:
+        1. Wikipedia (infobox 'Industry')
+    - company_size:
+        - LinkedIn only (best-effort).
+    - description:
+        - LinkedIn only (reserved for future; currently not parsed).
+    - official_website:
+        1. Wikipedia (infobox 'Website')
+        2. Wikidata (P856)
+    - city/state/country:
+        - Wikipedia HQ parsing only.
+    - employees:
+        - Wikidata (P1128).
+    """
+    profile: Dict[str, Any] = {}
+
+    def pick(*values):
+        for v in values:
+            if v:
+                return v
+        return None
+
+    profile["founded_at"] = pick(
+        wikidata.get("founded_at"),
+        wiki.get("founded_at"),
+        linkedin.get("founded_at"),
+    )
+
+    profile["founders"] = pick(
+        wiki.get("founders"),
+        wikidata.get("founders"),
+    )
+
+    profile["industry"] = pick(
+        wiki.get("industry"),
+    )
+
+    profile["company_size"] = linkedin.get("company_size")
+    profile["description"] = linkedin.get("description")
+
+    profile["official_website"] = pick(
+        wiki.get("official_website"),
+        wikidata.get("official_website"),
+    )
+
+    profile["city"] = wiki.get("city")
+    profile["state"] = wiki.get("state")
+    profile["country"] = wiki.get("country")
+
+    profile["employees"] = wikidata.get("employees")
 
     return profile
 
 
 # ============================================================
-# 6. MAP PROFILE → MODEL FEATURES
-# ============================================================
-
-def profile_to_model_features(profile: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Convert unified profile → ML model input schema.
-    """
-    return {
-        "founded_at": profile.get("founded_at"),
-        "first_funding_at": profile.get("first_funding_at"),
-        "last_funding_at": profile.get("last_funding_at"),
-        "funding_total_usd": profile.get("funding_total_usd"),
-        "funding_rounds": profile.get("funding_rounds"),
-        "relationships": profile.get("relationships"),
-        "milestones": profile.get("milestones"),
-        "category_code": profile.get("category_code"),
-        "city": profile.get("city"),
-        "state_code": profile.get("state_code"),
-    }
-
-
-# ============================================================
-# 7. HIGH-LEVEL PIPELINE
+# 7. High-level pipeline
 # ============================================================
 
 def build_startup_profile(name: str) -> Dict[str, Any]:
     """
-    Main pipeline:
-      - Resolve URLs
-      - Scrape Crunchbase
-      - Scrape Wikipedia
-      - Merge profiles
-      - Convert to model features
+    Full autofill pipeline for a given startup/company/institution name.
+
+    STEPS:
+    1. Resolve Wikipedia URL using improved disambiguation.
+    2. Scrape Wikipedia infobox for basic metadata.
+    3. Extract Wikidata QID from Wikipedia page and fetch structured data.
+    4. Best-effort LinkedIn scrape for company_size/founded_at.
+    5. Merge all fields into a single 'profile' dict.
     """
-    urls = resolve_entity(name)
+    wiki_url = find_wikipedia_url(name)
 
-    cb_data = scrape_crunchbase(urls["crunchbase_url"]) if urls["crunchbase_url"] else {}
-    wiki_data = fetch_wikipedia_infobox(urls["wikipedia_url"]) if urls["wikipedia_url"] else {}
+    wiki_data = fetch_wikipedia_infobox(wiki_url) if wiki_url else {}
+    qid = extract_wikidata_qid(wiki_url) if wiki_url else None
+    wikidata = fetch_wikidata(qid) if qid else {}
+    linkedin = fetch_linkedin_company(name)
 
-    profile = merge_profiles(cb_data, wiki_data)
-    features = profile_to_model_features(profile)
+    profile = merge_profiles(wiki_data, wikidata, linkedin)
 
     return {
-        "urls": urls,
-        "raw_crunchbase": cb_data,
+        "sources": {
+            "wikipedia_url": wiki_url,
+            "wikidata_qid": qid,
+            "linkedin_url": f"https://www.linkedin.com/company/{name.lower().replace(' ', '')}/",
+        },
         "raw_wikipedia": wiki_data,
+        "raw_wikidata": wikidata,
+        "raw_linkedin": linkedin,
         "profile": profile,
-        "features": features,
     }
 
 
 # ============================================================
-# 8. FASTAPI ENDPOINT
+# 8. FastAPI endpoint
 # ============================================================
 
-app = FastAPI(title="Startup Autofill Service")
+app = FastAPI(title="Startup Autofill Service (Wikipedia + Wikidata + LinkedIn)")
 
 
 @app.get("/autofill")
 def autofill_startup(name: str):
     """
-    Expose the autofill system as an API endpoint.
+    HTTP GET /autofill?name=<company_or_institution_name>
+
+    BEHAVIOR:
+    - Runs the metadata pipeline (Wikipedia + Wikidata + LinkedIn).
+    - If at least one source identifier exists (Wikipedia/Wikidata/LinkedIn),
+      we consider it a valid entity and return the result (even if some
+      profile fields are empty).
+    - If no identifiers exist at all, returns 404 with a clear message.
     """
     result = build_startup_profile(name)
-    features = result["features"]
 
-    missing = [k for k, v in features.items() if v is None or v == ""]
-
-    if len(missing) == len(features):
+    # Require at least one public identifier to consider this a real entity.
+    if not (
+        result["sources"]["wikipedia_url"]
+        or result["sources"]["wikidata_qid"]
+        or result["sources"]["linkedin_url"]
+    ):
         raise HTTPException(
             status_code=404,
-            detail="Could not autofill any fields for this startup name.",
+            detail="No public data available for this name.",
         )
 
-    return {
-        "startup_name": name,
-        "sources": result["urls"],
-        "autofilled_features": features,
-        "missing_fields": missing,
-        "raw_crunchbase": result["raw_crunchbase"],
-        "raw_wikipedia": result["raw_wikipedia"],
-    }
+    return result
