@@ -295,13 +295,38 @@ def get_model():
 model = get_model()
 
 def get_prediction(payload: dict) -> dict:
+    # 🎨 Fixed: pass payload as single arg (not **kwargs); returns keys the UI expects
     try:
-        input_data = preprocess_input(**payload)        # unpack dict as kwargs
-        prediction = make_prediction(model, input_data)
-        return {"prediction": prediction}
+        input_data = preprocess_input(payload)
+
+        # 🎨 Use predict_proba for a probability score when available, else fall back to predict
+        if hasattr(model, "predict_proba"):
+            proba = model.predict_proba(input_data)[0]
+            success_probability = float(proba[1]) if len(proba) > 1 else float(proba[0])
+        else:
+            success_probability = float(make_prediction(model, input_data))
+
+        risk_score = 1.0 - success_probability  # 🎨 Risk is the inverse of success probability
+
+        # 🎨 Extract feature importances; unwrap pipeline to reach the final estimator
+        feature_names = list(input_data.columns)
+        estimator = model[-1] if hasattr(model, "__getitem__") else model
+        if hasattr(estimator, "feature_importances_"):
+            raw_imp = estimator.feature_importances_
+        elif hasattr(estimator, "coef_"):
+            raw_imp = abs(estimator.coef_[0])
+        else:
+            raw_imp = [1.0 / len(feature_names)] * len(feature_names)
+        top_features = dict(zip(feature_names, [float(v) for v in raw_imp]))
+
+        return {
+            "success_probability": success_probability,
+            "risk_score": risk_score,
+            "top_features": top_features
+        }
     except Exception as exception:
         st.warning(f"⚠️ Model error - using data. ({exception})")
-        return make_prediction(payload)
+        return {"success_probability": 0.0, "risk_score": 1.0, "top_features": {}}
 
 
 
@@ -484,19 +509,17 @@ with st.form("prediction_form"):
 #  concicliate with app.py 🚨
 # -------------------------------------------------------
 if submitted:
+    # 🎨 Added company_name so the results header can display it (filtered out before model input)
     payload = {
-        #"company_name":      company_name or "Unnamed Startup",
-        "Founded Year":      int(founded_year),
-        "Country":           country_code,
-        'State Code':        state_code,
-        "industry":          industry,
-        "employees":         employees,
-        "relationships":     int(relationships),
-        "Total Funding Raised ($M)": float(funding_total_usd) * 1_000_000,
-        "Funding Rounds":    int(funding_rounds),
-        'First Funding Year': int(first_funding_year),
-        'Last Funding Year': int(last_funding_year),
-        'Category': category_list
+        "company_name": str(company_name),
+        "category_list": str(category_list),
+        "funding_total_usd":float(funding_total_usd) * 1_000_000,
+        "country_code":  str(country_code),
+        "state_code": str(state_code),
+        "funding_rounds": int(funding_rounds),
+        "founded_year":  int(founded_year),
+        "first_funding_year": int(first_funding_year),
+        "last_funding_year": int(last_funding_year),
     }
 
 
