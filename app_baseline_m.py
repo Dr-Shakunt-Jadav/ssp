@@ -21,6 +21,8 @@ load_dotenv()
 API_URL = "http://localhost:8000/predict"  # swap in real URL later
 HF_TOKEN = os.getenv("HF_TOKEN")
 
+# RENAME keuwords as INDUSTRIES,  countries as COUNTRIES, states as STATES 🚨
+
 keywords = ['Media', 'Application Platforms', 'Apps', 'Curated Web',
         'Software', 'Games', 'Biotechnology', 'Analytics', 'Mobile',
         'E-Commerce', 'Entertainment', 'Networking', 'Health and Wellness',
@@ -428,6 +430,8 @@ st.divider()
 # -------------------------------------------------------
 st.subheader("Company Profile")
 
+
+# compare to app.py version for same name. must use CAPITALS 🚨🚨🚨
 with st.form("prediction_form"):
 
     col1, col2, col3 = st.columns(3)
@@ -477,6 +481,7 @@ with st.form("prediction_form"):
 
 # -------------------------------------------------------
 # RESULTS
+#  concicliate with app.py 🚨
 # -------------------------------------------------------
 if submitted:
     payload = {
