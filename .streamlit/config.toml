@@ -1,0 +1,11 @@
+[server]
+port = 8501
+headless = true
+
+[client]
+toolbarMode = "viewer"
+showSidebarNavigation = true
+
+[theme]
+primaryColor = "#6c7854"
+baseRadius = "small"

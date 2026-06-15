@@ -25,6 +25,7 @@ def render_voice_input(col, industries: list, countries: list, states: list):
                         st.session_state.extracted_fields = extract_fields(
                             transcript, industries, countries, states
                         )
+                    st.rerun()
 
         if st.session_state.transcript:
             st.success(f"**Transcript:** {st.session_state.transcript}")

@@ -33,14 +33,16 @@ model = get_model()
 render_header()
 st.divider()
 
+submitted, payload = render_input_form(
+    st.session_state.extracted_fields, INDUSTRIES, COUNTRIES, STATES
+)
+st.divider()
+
 voice_col, autofill_col = st.columns(2)
 render_voice_input(voice_col, INDUSTRIES, COUNTRIES, STATES)
 render_autofill(autofill_col, INDUSTRIES, COUNTRIES, STATES)
 st.divider()
 
-submitted, payload = render_input_form(
-    st.session_state.extracted_fields, INDUSTRIES, COUNTRIES, STATES
-)
 
 if submitted:
     result = get_prediction(payload, model)
