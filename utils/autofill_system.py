@@ -203,7 +203,7 @@ def fetch_wikipedia_infobox(url: str) -> Dict[str, Any]:
     if resp.status_code != 200:
         return {}
 
-    soup = BeautifulSoup(resp.text, "lxml")
+    soup = BeautifulSoup(resp.text, "html.parser")
     infobox = soup.find("table", class_=lambda c: c and "infobox" in c.split())
     if not infobox:
         return {}
@@ -261,7 +261,7 @@ def extract_wikidata_qid(wikipedia_url: str) -> Optional[str]:
     """
     try:
         resp = requests.get(wikipedia_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        soup = BeautifulSoup(resp.text, "lxml")
+        soup = BeautifulSoup(resp.text, "html.parser")
         link = soup.find("a", href=re.compile(r"wikidata\.org/wiki/Q"))
         if not link:
             return None
@@ -352,7 +352,7 @@ def fetch_linkedin_company(name: str) -> Dict[str, Any]:
     except Exception:
         return {}
 
-    soup = BeautifulSoup(resp.text, "lxml")
+    soup = BeautifulSoup(resp.text, "html.parser")
     data: Dict[str, Any] = {}
 
     try:
