@@ -61,25 +61,50 @@ def get_prediction(payload: dict) -> dict:
 # -------------------------------------------------------
 # PAGE HEADER
 # -------------------------------------------------------
+
 st.markdown("""
-<div style="text-align:center; padding:1.5rem 0 0.5rem;">
-    <div style="font-size:2.8rem; font-weight:900; color:#1e3a8a;">Startup Comparison</div>
-    <div style="color:#64748b; font-size:1rem; margin-top:0.4rem;">Compare multiple startups side-by-side &nbsp;·&nbsp; Le Wagon Bootcamp Montréal 2026</div>
+<div style="text-align:center;padding:1rem 0 2rem 0;">
+    <h1 style="margin-bottom:0;">
+        🏆 Startup Success Comparison
+    </h1>
+    <p style="font-size:18px;color:gray;">
+        Compare up to 10 startups and identify which has the highest predicted probability of success.
+    </p>
 </div>
 """, unsafe_allow_html=True)
 
 st.divider()
 
 # -------------------------------------------------------
-# NUMBER OF COMPANIES
+# BULK STARTUP INPUT
 # -------------------------------------------------------
-num_companies = st.number_input(
-    "Number of Startups to Compare",
-    min_value=2,
-    max_value=10,
-    value=2,
-    step=1,
+
+startup_names_text = st.text_area(
+    "Paste Startup Names (one per line)",
+    placeholder="""OpenAI
+Anthropic
+Perplexity""",
 )
+
+import re
+
+startup_names = [
+    name.strip()
+    for name in re.split(r'[\n,]+', startup_names_text)
+    if name.strip()
+]
+
+
+if startup_names:
+    num_companies = min(len(startup_names), 10)
+else:
+    num_companies = st.number_input(
+        "Number of Startups to Compare",
+        min_value=2,
+        max_value=10,
+        value=2,
+        step=1,
+    )
 
 st.divider()
 
@@ -92,14 +117,33 @@ with st.form("comparison_form"):
 
     for i in range(num_companies):
 
-        st.markdown(f"### 🚀 Startup {i + 1}")
+        st.markdown(
+            f"""
+            ### 🚀 Startup {i + 1}
+            ---
+            """
+        )
+
 
         col1, col2, col3 = st.columns(3)
 
         with col1:
             st.markdown("**Identity**")
+            default_name = (
+                startup_names[i]
+                if startup_names and i < len(startup_names)
+                else ""
+            )
+
+            default_name = (
+                startup_names[i]
+                if startup_names and i < len(startup_names)
+                else ""
+            )
+
             company_name = st.text_input(
                 "Company Name",
+                value=default_name,
                 placeholder=f"e.g. Startup {i + 1}",
                 key=f"name_{i}",
             )
@@ -189,7 +233,31 @@ with st.form("comparison_form"):
 # -------------------------------------------------------
 # RESULTS
 # -------------------------------------------------------
-if submitted:
+# if submitted:
+
+#     winner = results_df.iloc[0]
+
+# st.markdown("## 🏆 Comparison Summary")
+
+# col1, col2, col3 = st.columns(3)
+
+# with col1:
+#     st.metric(
+#         "Winner",
+#         winner["Company"]
+#     )
+
+# with col2:
+#     st.metric(
+#         "Success Probability",
+#         f"{winner['Success Probability (%)']}%"
+#     )
+
+# with col3:
+#     st.metric(
+#         "Risk Score",
+#         f"{winner['Risk Score (%)']}%"
+#     )
 
     comparison_results = []
 
@@ -203,25 +271,58 @@ if submitted:
             })
 
     results_df = (
-        pd.DataFrame(comparison_results)
-        .sort_values("Success Probability (%)", ascending=False)
-        .reset_index(drop=True)
+    pd.DataFrame(comparison_results)
+    .sort_values("Success Probability (%)", ascending=False)
+    .reset_index(drop=True)
+)
+
+winner = results_df.iloc[0]
+
+st.markdown("## 🏆 Comparison Summary")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric(
+        "Winner",
+        winner["Company"]
     )
-    results_df.index += 1  # rank starts at 1
 
-    st.subheader("🏆 Startup Ranking")
-    st.dataframe(results_df, use_container_width=True)
+with col2:
+    st.metric(
+        "Success Probability",
+        f"{winner['Success Probability (%)']}%"
+    )
 
-    st.subheader("📊 Comparison Chart")
+with col3:
+    st.metric(
+        "Risk Score",
+        f"{winner['Risk Score (%)']}%"
+    )
+medals = ["🥇", "🥈", "🥉"]
 
-    colors = []
-    for prob in results_df["Success Probability (%)"]:
-        if prob >= 65:
-            colors.append("#2ecc71")
-        elif prob >= 45:
-            colors.append("#f39c12")
-        else:
-            colors.append("#e74c3c")
+results_df.insert(
+    0,
+    "Rank",
+    [
+        medals[i] if i < 3 else f"#{i+1}"
+        for i in range(len(results_df))
+    ]
+)
+
+st.subheader("🏆 Startup Ranking")
+st.dataframe(results_df, use_container_width=True)
+
+st.subheader("📊 Comparison Chart")
+
+colors = []
+for prob in results_df["Success Probability (%)"]:
+    if prob >= 65:
+        colors.append("#2ecc71")
+    elif prob >= 45:
+        colors.append("#f39c12")
+    else:
+        colors.append("#e74c3c")
 
     fig = go.Figure(go.Bar(
         x=results_df["Success Probability (%)"],
