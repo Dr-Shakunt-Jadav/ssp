@@ -25,6 +25,10 @@ def render_autofill(col, industries: list, countries: list, states: list):
                 )
             with st.spinner("Mapping fields..."):
                 fields = extract_fields(profile_str, industries, countries, states)
+
+                st.write("PROFILE:", profile)
+                st.write("PROFILE STRING:", profile_str)
+                st.write("EXTRACTED:", fields)
+
                 fields["company_name"] = autofill_query
                 st.session_state.extracted_fields = fields
-            st.rerun()

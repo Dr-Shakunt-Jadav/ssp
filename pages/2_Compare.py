@@ -79,6 +79,22 @@ st.divider()
 # BULK STARTUP INPUT
 # -------------------------------------------------------
 
+uploaded_file = st.file_uploader(
+    "📂 Upload Startup CSV",
+    type=["csv"]
+)
+
+
+if uploaded_file is not None:
+
+    uploaded_df = pd.read_csv(uploaded_file)
+
+    st.success(
+        f"Loaded {len(uploaded_df)} startups"
+    )
+
+    st.dataframe(uploaded_df.head())
+
 startup_names_text = st.text_area(
     "Paste Startup Names (one per line)",
     placeholder="""OpenAI
