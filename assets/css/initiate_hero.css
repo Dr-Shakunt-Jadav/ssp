@@ -1,0 +1,36 @@
+.initiate-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5rem;
+  padding: 4rem 5%;
+  border-radius: 8px;
+}
+
+.initiate-hero__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.initiate-hero__logo {
+  display: block;
+  width: clamp(90px, 11vw, 160px);
+  height: auto;
+}
+
+.initiate-hero__description {
+  max-width: 620px;
+}
+
+.initiate-hero__description p {
+  margin: 0 0 1rem !important;
+  font-size: clamp(1.1rem, 2.2vw, 1.6rem) !important;
+  font-weight: 400 !important;
+  line-height: 1.5 !important;
+}
+
+.initiate-hero__description p:last-child {
+  margin-bottom: 0 !important;
+}

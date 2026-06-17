@@ -7,6 +7,7 @@ import streamlit as st
 
 from utils.model_utils import load_ml_model, preprocess_input, make_prediction
 from utils.categorical_lists import industries, countries, states
+from src.components.navigation import render_navigation
 
 # -------------------------------------------------------
 # CONFIG
@@ -16,6 +17,13 @@ st.set_page_config(
     page_icon="🏆",
     layout="wide",
 )
+
+render_navigation("Compare")
+
+ASSETS = Path(__file__).parent.parent / "assets"
+brand_css = (ASSETS / "css" / "brand_mark.css").read_text()
+brand_html = (ASSETS / "html" / "brand_mark.html").read_text()
+st.markdown(f"<style>{brand_css}</style>{brand_html}", unsafe_allow_html=True)
 
 INDUSTRIES = industries()
 COUNTRIES  = countries()
