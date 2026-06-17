@@ -5,7 +5,7 @@ import streamlit as st
 from utils.categorical_lists import industries, countries, states
 from src.components.voice_input import render_voice_input
 from src.components.autofill import render_autofill
-from src.components.navigation import render_navigation
+from src.components.navigation import render_navigation, PATH_BY_LABEL
 
 st.set_page_config(page_title="Fill Form", page_icon="📝", layout="wide")
 
@@ -29,5 +29,8 @@ st.divider()
 
 voice_col, autofill_col = st.columns(2)
 render_voice_input(voice_col, INDUSTRIES, COUNTRIES, STATES)
-render_autofill(autofill_col, INDUSTRIES, COUNTRIES, STATES)
+looked_up = render_autofill(autofill_col, INDUSTRIES, COUNTRIES, STATES)
 st.divider()
+
+if looked_up:
+    st.switch_page(PATH_BY_LABEL["Form Overview"])

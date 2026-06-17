@@ -5,41 +5,31 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
-  gap: 5rem;
-  /* CHANGED: Used 'background' instead of 'background-color' */
-  background: linear-gradient(135deg, #B8E5FF 0%, #7DD3F8 50%, #5BB5F0 100%);
-  padding: 4rem 5%;
-  border-radius: 8px;
+  gap: clamp(2rem, 4vw, 4rem);
+  /* page already has the gradient — hero is transparent */
+  background: transparent;
+  padding: clamp(1.5rem, 4vh, 3rem) 5%;
 }
 
 .intro-hero__brand {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: clamp(0.75rem, 2vh, 1.25rem);
 }
 
 .intro-hero__logo {
   display: block;
-  width: clamp(180px, 22vw, 320px);
+  width: clamp(120px, 14vw, 220px);
   height: auto;
 }
 
-.intro-hero__pill {
-  align-self: flex-start;
-  padding: 1.1rem 1.6rem;
-  border: 1px solid rgba(244, 94, 94, 0.15);
-  border-radius: 16px;
-  box-shadow: 2px 2px 6px rgba(170, 72, 72, 0.25);
-  color: #ffffff;
-  font-size: clamp(0.9rem, 1.4vw, 1.1rem);
-}
 
 .intro-hero__headline {
   margin: 0 !important;
   font-family: 'Bebas Neue', sans-serif !important;
   font-weight: 400 !important;
-  font-size: clamp(1.8rem, 6.25vw, 90px) !important;
-  line-height: normal !important;
+  font-size: clamp(1.6rem, 4.5vw, 66px) !important;
+  line-height: 1.05 !important;
   color: #ffffff !important;
   text-align: left !important;
 }

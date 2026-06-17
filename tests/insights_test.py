@@ -1,6 +1,6 @@
 import streamlit as st
-import requests
 import uuid
+from utils.add_info import add_info, EnrichRequest
 
 # -------------------------------------------------------------
 # PAGE CONFIGURATION
@@ -12,9 +12,6 @@ st.set_page_config(
 )
 
 st.title("📊 Startup Insights Tester")
-
-API_URL = "http://127.0.0.1:8000/add_info"
-API_DOCS = "http://127.0.0.1:8000/docs"
 
 # -------------------------------------------------------------
 # SESSION STATE INITIALIZATION
@@ -50,19 +47,12 @@ st.session_state.last_company = company
 # -------------------------------------------------------------
 if st.button("Generate Insights"):
     try:
-        payload = {
-            "company": company,
-            "success": success_input,
-            "probability": probability_input
-        }
-
-        response = requests.post(API_URL, json=payload, timeout=10)
-        st.session_state.insights = response.json()
+        req = EnrichRequest(company=company, success=success_input, probability=probability_input)
+        st.session_state.insights = add_info(req)
         st.session_state.trigger = uuid.uuid4()
-
         st.success("Insights generated successfully!")
     except Exception as e:
-        st.error(f"❌ Failed to call backend: {e}")
+        st.error(f"❌ Failed to generate insights: {e}")
         st.stop()
 
 # -------------------------------------------------------------
