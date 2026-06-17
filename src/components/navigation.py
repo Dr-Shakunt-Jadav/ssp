@@ -3,7 +3,6 @@ import streamlit as st
 PAGES = [
     {"path": "app.py",                   "label": "Home"},
     {"path": "pages/0_intro.py",         "label": "Intro"},
-    {"path": "pages/1_initiate.py",      "label": "Initiate"},
     {"path": "pages/2_fill_form.py",     "label": "Fill Form"},
     {"path": "pages/3_form_overview.py", "label": "Form Overview"},
     {"path": "pages/5_results.py",       "label": "Results"},
@@ -15,7 +14,7 @@ PAGES = [
 PATH_BY_LABEL = {page["label"]: page["path"] for page in PAGES}
 
 # Only the main user flow — drives the › drill-down button
-FLOW = ["Home", "Intro", "Initiate", "Fill Form", "Form Overview", "Results"]
+FLOW = ["Home", "Intro", "Fill Form", "Form Overview", "Results"]
 ORDER = FLOW
 
 

@@ -7,6 +7,6 @@
 
 .brand-mark__logo {
   display: block;
-  width: clamp(126px, 15.4vw, 224px);
+  width: clamp(60px, 5vw, 100px);
   height: auto;
 }
