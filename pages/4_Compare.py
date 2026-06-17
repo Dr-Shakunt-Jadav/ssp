@@ -4,6 +4,7 @@ import re
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from pathlib import Path
 
 from utils.model_utils import load_ml_model, preprocess_input, make_prediction
 from utils.categorical_lists import industries, countries, states
@@ -95,6 +96,30 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
     uploaded_df = pd.read_csv(uploaded_file)
+
+    required_columns = [
+    "company_name",
+    "category_list",
+    "funding_total_usd",
+    "country_code",
+    "state_code",
+    "funding_rounds",
+    "founded_year",
+    "first_funding_year",
+    "last_funding_year"
+]
+
+    missing_cols = [
+        col for col in required_columns
+        if col not in uploaded_df.columns
+    ]
+
+    if missing_cols:
+        st.error(
+            f"Missing required columns: {', '.join(missing_cols)}"
+        )
+        st.stop()
+
     st.success(f"Loaded {len(uploaded_df)} startups")
     st.dataframe(uploaded_df)
     run_csv_comparison = st.button(
@@ -282,18 +307,43 @@ if submitted or run_csv_comparison:
     )
 
     st.subheader("🏆 Startup Ranking")
-    st.dataframe(results_df, use_container_width=True)
+st.dataframe(results_df, use_container_width=True)
 
-    st.subheader("📊 Comparison Chart")
+# ----------------------------------------
+# WHY DID THE WINNER SCORE HIGHER?
+# ----------------------------------------
 
-    colors = []
-    for prob in results_df["Success Probability (%)"]:
-        if prob >= 65:
-            colors.append("#2ecc71")
-        elif prob >= 45:
-            colors.append("#f39c12")
-        else:
-            colors.append("#e74c3c")
+st.subheader("🔍 Why Did The Winner Score Higher?")
+
+winner_name = winner["Company"]
+
+winner_data = next(
+    c for c in companies
+    if c["company_name"] == winner_name
+)
+
+st.success(
+    f"""
+    {winner_name} achieved the highest predicted success probability.
+
+    Key factors:
+    • Funding Raised: ${winner_data['funding_total_usd']:,.0f}
+    • Funding Rounds: {winner_data['funding_rounds']}
+    • Industry: {winner_data['category_list']}
+    • Founded Year: {winner_data['founded_year']}
+    """
+)
+
+st.subheader("📊 Comparison Chart")
+
+colors = []
+for prob in results_df["Success Probability (%)"]:
+    if prob >= 65:
+        colors.append("#2ecc71")
+    elif prob >= 45:
+        colors.append("#f39c12")
+    else:
+        colors.append("#e74c3c")
 
     fig = go.Figure(go.Bar(
         x=results_df["Success Probability (%)"],
