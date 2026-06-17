@@ -26,19 +26,5 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown(
-    """
-    <style>
-      div[data-testid="stButton"] button {
-        background-color: #ffffff !important;
-        color: #111111 !important;
-        border: 1px solid rgba(0, 0, 0, 0.1) !important;
-        box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.25) !important;
-      }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 if st.button("Measure yourself", type="primary"):
     st.switch_page(PATH_BY_LABEL["Fill Form"])
