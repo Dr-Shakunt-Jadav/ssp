@@ -24,7 +24,16 @@ def render_autofill(col, industries: list, countries: list, states: list):
                     f"State: {profile.get('state') or ''}."
                 )
             with st.spinner("Mapping fields..."):
-                fields = extract_fields(profile_str, industries, countries, states)
+                fields = {
+                "company_name": autofill_query,
+                "industry": profile.get("industry"),
+                "founded_year": (
+                    int(profile["founded_at"][:4])
+                    if profile.get("founded_at")
+                    else None
+                ),
+            }
+                # fields = extract_fields(profile_str, industries, countries, states)
 
                 st.write("PROFILE:", profile)
                 st.write("PROFILE STRING:", profile_str)
